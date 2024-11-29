@@ -19,42 +19,6 @@ type ErrorContainer interface {
 	// Add any other common methods both types share
 }
 
-// imdsRequestError implementing the IMDSError interface
-type imdsRequestError struct {
-	requestKey string
-	err        error
-	code       string
-	fault      smithy.ErrorFault
-}
-
-func (e *imdsRequestError) Error() string {
-	return fmt.Sprintf("failed to retrieve %s from instance metadata %v", e.requestKey, e.err)
-}
-
-func (e *imdsRequestError) Unwrap() error {
-	return e.err
-}
-
-func (e *imdsRequestError) ErrorCode() string {
-	var apiErr smithy.APIError
-	if errors.As(e.err, &apiErr) {
-		return apiErr.ErrorCode()
-	}
-	return e.code
-}
-
-func (e *imdsRequestError) ErrorMessage() string {
-	return e.Error()
-}
-
-func (e *imdsRequestError) ErrorFault() smithy.ErrorFault {
-	var apiErr smithy.APIError
-	if errors.As(e.err, &apiErr) {
-		return apiErr.ErrorFault()
-	}
-	return e.fault
-}
-
 // IsNotFound checks if the error indicates a "not found" condition
 func IsNotFound(err error) bool {
 	if err == nil {
