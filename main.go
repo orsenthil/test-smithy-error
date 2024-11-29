@@ -8,12 +8,23 @@ import (
 	"strings"
 )
 
-// imdsRequestError to provide the caller on the request status
+// Define the interface that represents what we consider an IMDS error
+type IMDSError interface {
+	error
+	ErrorContainer
+}
+
+type ErrorContainer interface {
+	Error() string
+	// Add any other common methods both types share
+}
+
+// imdsRequestError implementing the IMDSError interface
 type imdsRequestError struct {
 	requestKey string
 	err        error
-	code       string            // Added to support SDK V2 APIError interface
-	fault      smithy.ErrorFault // Added to support SDK V2 APIError interface
+	code       string
+	fault      smithy.ErrorFault
 }
 
 func (e *imdsRequestError) Error() string {
@@ -24,7 +35,6 @@ func (e *imdsRequestError) Unwrap() error {
 	return e.err
 }
 
-// Implement smithy.APIError interface
 func (e *imdsRequestError) ErrorCode() string {
 	var apiErr smithy.APIError
 	if errors.As(e.err, &apiErr) {
@@ -45,25 +55,6 @@ func (e *imdsRequestError) ErrorFault() smithy.ErrorFault {
 	return e.fault
 }
 
-// Constructor for imdsRequestError
-func newIMDSRequestError(requestKey string, err error) *imdsRequestError {
-	return &imdsRequestError{
-		requestKey: requestKey,
-		err:        err,
-		code:       "IMDSRequestError",
-		fault:      smithy.FaultUnknown,
-	}
-}
-
-// Simulated function that returns a smithy.OperationError
-func simulateEC2IMDSCall() error {
-	return &smithy.OperationError{
-		ServiceID:     "ec2imds",
-		OperationName: "GetMetadata",
-		Err:           fmt.Errorf("http response error StatusCode: 404, request to EC2 IMDS failed"),
-	}
-}
-
 // IsNotFound checks if the error indicates a "not found" condition
 func IsNotFound(err error) bool {
 	if err == nil {
@@ -76,37 +67,45 @@ func IsNotFound(err error) bool {
 		return strings.Contains(oe.Error(), "StatusCode: 404")
 	}
 
-	// Check for any APIError (including imdsRequestError)
+	// Check for any APIError
 	var ae smithy.APIError
 	if errors.As(err, &ae) {
-		if imdsErr, ok := ae.(*imdsRequestError); ok {
-			return IsNotFound(imdsErr.err)
-		}
 		return ae.ErrorCode() == "NotFound"
 	}
 
 	return false
 }
 
+// Simulated function that returns a smithy.OperationError
+func simulateEC2IMDSCall() error {
+	return &smithy.OperationError{
+		ServiceID:     "ec2imds",
+		OperationName: "GetMetadata",
+		Err:           fmt.Errorf("http response error StatusCode: 404, request to EC2 IMDS failed"),
+	}
+}
+
 // Function that makes use of the IMDS call and handles errors
 func getMetadata() error {
-	// Make the IMDS call
 	err := simulateEC2IMDSCall()
 	if err != nil {
-		// Wrap the error in imdsRequestError
-		imdsErr := newIMDSRequestError("metadata", err)
+		log.Printf("Original error type: %T", err)
 
-		// Now try to handle the wrapped error
-		var checkErr *imdsRequestError
-		if errors.As(imdsErr, &checkErr) {
-			if IsNotFound(checkErr.err) {
+		var imdsErr IMDSError
+		var oe *smithy.OperationError
+		if errors.As(err, &oe) {
+			log.Printf("Recognized as OperationError interface")
+		}
+
+		if errors.As(err, &imdsErr) {
+			log.Printf("Recognized as IMDSError interface")
+			if IsNotFound(err) {
 				log.Printf("Not found error detected")
 				return nil
 			}
-			log.Printf("Other IMDS error: %v", checkErr)
-			return checkErr.err
+			log.Printf("Other IMDS error: %v", imdsErr)
+			return err
 		}
-
 		return err
 	}
 	return nil
